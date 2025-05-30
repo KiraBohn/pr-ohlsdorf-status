@@ -52,12 +52,12 @@ jobs:
           DATA="${CURL_OUTPUT:0:${#CURL_OUTPUT}-3}"
 
           echo "HTTP Status Code from curl: $HTTP_CODE"
-          echo "Raw DATA from curl: $DATA" # Print full data now that it's just a number
+          echo "Raw DATA from curl: '${DATA}'" # Print with quotes to visualize whitespace
 
           # Check if curl returned a successful HTTP status code
           if [[ "$HTTP_CODE" -ne 200 ]]; then
             echo "Error: curl returned HTTP status code $HTTP_CODE. Data might be incomplete or invalid."
-            echo "Full curl output: $CURL_OUTPUT"
+            echo "Full curl output: '$CURL_OUTPUT'"
             exit 1 # Fail the step if HTTP status is not 200
           fi
 
@@ -67,8 +67,10 @@ jobs:
             exit 1 # Fail the step if data is empty
           fi
 
-          # Directly use DATA as FREE, as it appears to be the number itself
-          FREE="$DATA"
+          # --- FIX ---
+          # Strip leading/trailing whitespace (including newlines) from DATA
+          FREE=$(echo "$DATA" | xargs)
+          # --- END FIX ---
 
           # Basic validation to ensure FREE is a number
           if ! [[ "$FREE" =~ ^[0-9]+$ ]]; then
