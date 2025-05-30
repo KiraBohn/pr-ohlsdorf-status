@@ -2,11 +2,15 @@ name: Parkstatus Ohlsdorf
 
 on:
   schedule:
-    - cron: '15 18 * * *'  # 20:15 Uhr MESZ
-    - cron: '16 18 * * *'  # 20:16 Uhr MESZ
-    - cron: '17 18 * * *'  # 20:17 Uhr MESZ
-    - cron: '18 18 * * *'  # 20:18 Uhr MESZ
-  workflow_dispatch:
+    # These cron expressions trigger the workflow at specific minutes.
+    # Note: GitHub Actions cron times are in UTC. '18' is 6 PM UTC.
+    # To get 20:15, 20:16, 20:17, 20:18 MESZ (UTC+2), the UTC times would be 18:15, 18:16, 18:17, 18:18.
+    # Your current cron values seem correct for 20:15-20:18 MESZ if the server is UTC.
+    - cron: '15 18 * * *'
+    - cron: '16 18 * * *'
+    - cron: '17 18 * * *'
+    - cron: '18 18 * * *'
+  workflow_dispatch: # Allows manual triggering
 
 jobs:
   erfassen:
@@ -18,60 +22,78 @@ jobs:
         run: pip install requests
 
       - name: Parkdaten erfassen
+        id: capture_data # Add an ID to this step
         run: |
-          CRON_EXPR="${{ github.event.schedule }}"
-          case $CRON_EXPR in
-            "15 18 * * *") FILE="1501.txt" ;;
-            "16 18 * * *") FILE="1502.txt" ;;
-            "17 18 * * *") FILE="1503.txt" ;;
-            *) FILE="manual-test.txt" ;;
-          esac
+          CURRENT_MINUTE=$(date +%M) # Get the current minute
+          FILE_NAME=""
 
-          # Fallback für manuellen Test
-          if [ ! -f 1501.txt ] && [ -f manual-test.txt ]; then cp manual-test.txt 1501.txt; fi
-          if [ ! -f 1502.txt ] && [ -f manual-test.txt ]; then cp manual-test.txt 1502.txt; fi
-          if [ ! -f 1503.txt ] && [ -f manual-test.txt ]; then cp manual-test.txt 1503.txt; fi
+          # Determine file name based on the current minute (which corresponds to the cron trigger)
+          # For manual runs, use manual-test.txt
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            case $CURRENT_MINUTE in
+              "15") FILE_NAME="1501.txt" ;;
+              "16") FILE_NAME="1502.txt" ;;
+              "17") FILE_NAME="1503.txt" ;;
+              # The '18' cron job is handled in the next part if needed, or by not assigning it a specific file here
+              *) FILE_NAME="error-unknown-minute.txt" ;; # Fallback for unexpected scheduled minute
+            esac
+          else # workflow_dispatch (manual trigger)
+            FILE_NAME="manual-test.txt"
+          fi
+
+          echo "Capturing data to: $FILE_NAME"
 
           DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
-          FREE=$(echo $DATA | grep -oP '"free"\s*:\s*\K\d+')
-          echo "$FREE" > "$FILE"
+          FREE=$(echo "$DATA" | grep -oP '"free"\s*:\s*\K\d+')
 
-      - name: Speichere Datei als Artifact
+          # Ensure the file exists before writing
+          touch "$FILE_NAME"
+          echo "$FREE" > "$FILE_NAME"
+          echo "Captured free spaces: $FREE"
+
+          # Output the filename for subsequent steps if needed
+          echo "captured_file=$FILE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Speichere alle .txt Dateien als Artifact
         uses: actions/upload-artifact@v4
         with:
           name: parkstatus
           path: "*.txt"
-
-      - name: Speichere manuelle Testdatei (falls verwendet)
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: parkstatus
-          path: manual-test.txt
+          # Optional: Keep history if needed, but for daily reports, usually not.
+          # retention-days: 1
 
   mailversand:
-    needs: erfassen
+    needs: erfassen # Ensure this job runs after 'erfassen'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Installiere Abhängigkeiten
-        run: pip install requests
+      # No actions/checkout@v4 or pip install requests needed here, as artifacts are downloaded.
 
       - name: Lade Dateien aus vorherigen Jobs
         uses: actions/download-artifact@v4
         with:
           name: parkstatus
+          path: . # Download to current directory
 
       - name: Lade Parkdaten und bereite Nachricht vor
         id: load
         run: |
-          free_530=$(cat 1501.txt 2>/dev/null || echo "-1")
-          free_600=$(cat 1502.txt 2>/dev/null || echo "-1")
-          free_630=$(cat 1503.txt 2>/dev/null || echo "-1")
-          echo "free_530=$free_530" >> $GITHUB_OUTPUT
-          echo "free_600=$free_600" >> $GITHUB_OUTPUT
-          echo "free_630=$free_630" >> $GITHUB_OUTPUT
+          # Use default value of -1 if files are not found (e.g., if only one cron triggered)
+          free_15=$(cat 1501.txt 2>/dev/null || echo "-1")
+          free_16=$(cat 1502.txt 2>/dev/null || echo "-1")
+          free_17=$(cat 1503.txt 2>/dev/null || echo "-1")
+          # For the 18th minute, if you want to capture and report it separately,
+          # you'd need a similar logic for a '1504.txt' or whatever you choose for the 18th minute.
+          # Currently, your setup only handles 15, 16, 17 specifically.
+
+          echo "free_15=$free_15" >> $GITHUB_OUTPUT
+          echo "free_16=$free_16" >> $GITHUB_OUTPUT
+          echo "free_17=$free_17" >> $GITHUB_OUTPUT
+
+          # If it's a manual run, provide specific output for the manual file
+          if [ -f manual-test.txt ]; then
+            manual_free=$(cat manual-test.txt)
+            echo "manual_free=$manual_free" >> $GITHUB_OUTPUT
+          fi
 
       - name: Datum bestimmen
         id: datum
@@ -92,11 +114,16 @@ jobs:
 
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
-            – Um 20:15 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
-            – Um 20:16 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
-            – Um 20:17 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
+            # Only show scheduled times if it's a scheduled run
+            ${{ github.event_name == 'schedule' && format('– Um 20:15 Uhr: {0} freie Plätze', steps.load.outputs.free_15) || '' }}
+            ${{ github.event_name == 'schedule' && format('– Um 20:16 Uhr: {0} freie Plätze', steps.load.outputs.free_16) || '' }}
+            ${{ github.event_name == 'schedule' && format('– Um 20:17 Uhr: {0} freie Plätze', steps.load.outputs.free_17) || '' }}
+            # If you want to include 18:18, you'd add a 1504.txt logic and similar line here.
+
+            # Show manual test result if it's a manual run
+            ${{ github.event_name == 'workflow_dispatch' && format('– Manuell erfasst: {0} freie Plätze', steps.load.outputs.manual_free) || '' }}
 
             Viele Grüße!
 
       - name: Lösche temporäre Dateien
-        run: rm *.txt || true
+        run: rm -f *.txt || true # Use -f for force removal, || true to prevent job failure if no files exist
