@@ -2,7 +2,7 @@ name: "P+R Ohlsdorf Status mit E-Mail"
 
 on:
   schedule:
-    - cron: '30 5 * * *'
+    - cron: '30 4 * * *'  # 6:30 Uhr MEZ/MESZ = 4:30 UTC
   workflow_dispatch:
 
 jobs:
@@ -10,31 +10,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Repository auschecken
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-python@v4
+      - name: Python einrichten
+        uses: actions/setup-python@v4
         with:
           python-version: '3.x'
 
-      - run: pip install --no-cache -r requirements.txt
+      - name: Abhängigkeiten installieren
+        run: pip install --no-cache -r requirements.txt
 
-      - id: status
+      - name: P+R Status abrufen
+        id: status
         run: |
           output=$(python3 ohlsdorf_status_ws.py)
           echo "$output"
           echo "free=$(echo "$output" | grep 'freie Stellplätze' | awk '{print $4}')" >> $GITHUB_OUTPUT
           echo "used=$(echo "$output" | grep 'belegte Stellplätze' | awk '{print $4}')" >> $GITHUB_OUTPUT
 
-      - uses: dawidd6/action-send-mail@v3
+      - name: Aktuelles Datum ermitteln
+        id: datum
+        run: echo "today=$(date '+%d.%m.%Y')" >> $GITHUB_OUTPUT
+
+      - name: E-Mail senden
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_HOST }}
           server_port:    ${{ secrets.SMTP_PORT }}
           username:       ${{ secrets.SMTP_USERNAME }}
           password:       ${{ secrets.SMTP_PASSWORD }}
-          subject:        "Ohlsdorf P+R-Status am ${{ github.event.date || github.run_started_at }}"
+          subject:        "Ohlsdorf P+R-Status am ${{ steps.datum.outputs.today }}"
           to:             ${{ secrets.EMAIL_TO }}
           from:           ${{ secrets.EMAIL_FROM }}
-          body:           |
+          body: |
             Guten Morgen,
 
             hier die aktuellen Zahlen der P+R-Anlage Ohlsdorf:
