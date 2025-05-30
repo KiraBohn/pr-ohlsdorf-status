@@ -1,35 +1,58 @@
-name: "P+R Ohlsdorf Status mit E-Mail"
+name: Parkstatus Ohlsdorf
 
 on:
   schedule:
-    - cron: '30 4 * * *'  # 6:30 Uhr MEZ/MESZ = 4:30 UTC
+    - cron: '30 3 * * *'  # 05:30 Uhr (UTC)
+    - cron: '0 4 * * *'   # 06:00 Uhr (UTC)
+    - cron: '30 4 * * *'  # 06:30 Uhr (UTC)
+    - cron: '31 4 * * *'  # 06:31 Uhr (UTC)
   workflow_dispatch:
 
 jobs:
-  fetch-and-mail:
+  erfassen:
+    if: github.event.schedule != '31 4 * * *'
     runs-on: ubuntu-latest
-
     steps:
-      - name: Repository auschecken
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Python einrichten
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
+      - name: Installiere Abhängigkeiten
+        run: pip install requests
 
-      - name: Abhängigkeiten installieren
-        run: pip install --no-cache -r requirements.txt
-
-      - name: P+R Status abrufen
-        id: status
+      - name: Parkdaten erfassen
         run: |
-          output=$(python3 ohlsdorf_status_ws.py)
-          echo "$output"
-          echo "free=$(echo "$output" | grep 'freie Stellplätze' | awk '{print $4}')" >> $GITHUB_OUTPUT
-          echo "used=$(echo "$output" | grep 'belegte Stellplätze' | awk '{print $4}')" >> $GITHUB_OUTPUT
+          HOUR=$(date +"%H%M")
+          DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
+          FREE=$(echo $DATA | grep -oP '"free"\s*:\s*\K\d+')
+          echo "$FREE" > ${HOUR}.txt
 
-      - name: Aktuelles Datum ermitteln
+      - name: Commit Datei
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add *.txt
+          git commit -m "Parkdaten gespeichert"
+          git push
+
+  mailversand:
+    if: github.event.schedule == '31 4 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installiere Abhängigkeiten
+        run: pip install requests
+
+      - name: Lade Parkdaten und bereite Nachricht vor
+        id: load
+        run: |
+          free_530=$(cat 0530.txt)
+          free_600=$(cat 0600.txt)
+          free_630=$(cat 0630.txt)
+          echo "free_530=$free_530" >> $GITHUB_OUTPUT
+          echo "free_600=$free_600" >> $GITHUB_OUTPUT
+          echo "free_630=$free_630" >> $GITHUB_OUTPUT
+
+      - name: Datum bestimmen
         id: datum
         run: echo "today=$(date '+%d.%m.%Y')" >> $GITHUB_OUTPUT
 
@@ -40,15 +63,19 @@ jobs:
           server_port:    ${{ secrets.SMTP_PORT }}
           username:       ${{ secrets.SMTP_USERNAME }}
           password:       ${{ secrets.SMTP_PASSWORD }}
-          subject:        "Ohlsdorf P+R-Status am ${{ steps.datum.outputs.today }}"
+          subject:        "Parkstatus Ohlsdorf am ${{ steps.datum.outputs.today }}"
           to:             ${{ secrets.EMAIL_TO }}
           from:           ${{ secrets.EMAIL_FROM }}
           body: |
             Guten Morgen,
 
-            hier die aktuellen Zahlen der P+R-Anlage Ohlsdorf:
+            hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
-            – Freie Stellplätze: ${{ steps.status.outputs.free }}
-            – Belegte Stellplätze: ${{ steps.status.outputs.used }}
+            – Um 05:30 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
+            – Um 06:00 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
+            – Um 06:30 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
 
             Viele Grüße!
+
+      - name: Lösche temporäre Dateien
+        run: rm 0530.txt 0600.txt 0630.txt
