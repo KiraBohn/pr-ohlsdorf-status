@@ -21,16 +21,16 @@ jobs:
       - name: Parkdaten erfassen
         run: |
           TIME=$(date +"%H:%M")
-    case "$TIME" in
-      "05:30") FILE="0530.txt" ;;
-      "06:00") FILE="0600.txt" ;;
-      "06:30") FILE="0630.txt" ;;
-      *) echo "Uhrzeit nicht erkannt: $TIME"; exit 1 ;;
-    esac
+          case "$TIME" in
+            "05:30") FILE="0530.txt" ;;
+            "06:00") FILE="0600.txt" ;;
+            "06:30") FILE="0630.txt" ;;
+            *) echo "Uhrzeit nicht erkannt: $TIME"; exit 1 ;;
+          esac
 
-    DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
-    FREE=$(echo $DATA | grep -oP '"free"\s*:\s*\K\d+')
-    echo "$FREE" > "$FILE"
+          DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
+          FREE=$(echo $DATA | grep -oP '"free"\s*:\s*\K\d+')
+          echo "$FREE" > "$FILE"
 
       - name: Commit Datei
         run: |
