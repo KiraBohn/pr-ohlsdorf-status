@@ -68,8 +68,8 @@ jobs:
           fi
 
           # --- FIX ---
-          # Strip leading/trailing whitespace (including newlines) from DATA
-          FREE=$(echo "$DATA" | xargs)
+          # Strip all newline characters from DATA
+          FREE=$(echo "$DATA" | tr -d '\n' | xargs) # Added tr -d '\n' for robustness, xargs for other whitespace
           # --- END FIX ---
 
           # Basic validation to ensure FREE is a number
