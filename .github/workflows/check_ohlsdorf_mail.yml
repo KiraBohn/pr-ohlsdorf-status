@@ -20,13 +20,14 @@ jobs:
 
       - name: Parkdaten erfassen
         run: |
-          TIME=$(date +"%H:%M")
-          case "$TIME" in
-            "05:30") FILE="0530.txt" ;;
-            "06:00") FILE="0600.txt" ;;
-            "06:30") FILE="0630.txt" ;;
-            *) echo "Uhrzeit nicht erkannt: $TIME"; exit 1 ;;
-          esac
+          MINUTE=$(date +"%M")
+          HOUR=$(date +"%H")
+
+          if [ "$HOUR" = "05" ] && [ "$MINUTE" = "30" ]; then FILE="0530.txt";
+          elif [ "$HOUR" = "06" ] && [ "$MINUTE" = "00" ]; then FILE="0600.txt";
+          elif [ "$HOUR" = "06" ] && [ "$MINUTE" = "30" ]; then FILE="0630.txt";
+          else echo "Uhrzeit nicht erkannt: $HOUR:$MINUTE"; exit 1;
+          fi
 
           DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
           FREE=$(echo $DATA | grep -oP '"free"\s*:\s*\K\d+')
