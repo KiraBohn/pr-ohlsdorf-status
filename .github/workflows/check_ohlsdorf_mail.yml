@@ -2,13 +2,15 @@ name: Parkstatus Ohlsdorf
 
 on:
   schedule:
-    # These cron expressions trigger the workflow at specific minutes.
-    # Note: GitHub Actions cron times are in UTC. '21' is 9 PM UTC.
-    # To get 23:20, 23:21, 23:22 MESZ (UTC+2), the UTC times would be 21:20, 21:21, 21:22.
-    - cron: '20 21 * * *'
-    - cron: '21 21 * * *'
-    - cron: '22 21 * * *'
-  workflow_dispatch: # Allows manual triggering
+    # Diese Cron-Ausdrücke lösen den Workflow zu bestimmten Minuten aus.
+    # Hinweis: GitHub Actions Cron-Zeiten sind in UTC.
+    # Um 5:30, 6:00, 6:30 MESZ (UTC+2) zu erhalten, wären die UTC-Zeiten 3:30, 4:00, 4:30.
+    - cron: '30 3 * * *' # 5:30 MESZ
+    - cron: '0 4 * * *'  # 6:00 MESZ
+    - cron: '30 4 * * *' # 6:30 MESZ
+    # Cron-Job hinzugefügt, um den Workflow um 6:31 MESZ (4:31 UTC) für den E-Mail-Versand auszulösen
+    - cron: '31 4 * * *'
+  workflow_dispatch: # Ermöglicht manuelles Auslösen
 
 jobs:
   erfassen:
@@ -20,68 +22,73 @@ jobs:
         run: pip install requests
 
       - name: Parkdaten erfassen
-        id: capture_data # Add an ID to this step
+        id: capture_data # Fügt eine ID zu diesem Schritt hinzu
         run: |
-          CURRENT_MINUTE=$(date +%M) # Get the current minute
+          CURRENT_MINUTE=$(date +%M) # Aktuelle Minute abrufen
+          CURRENT_HOUR=$(date +%H)   # Aktuelle Stunde abrufen
           FILE_NAME=""
 
-          # Determine file name based on the current minute (which corresponds to the cron trigger)
-          # For manual runs, use manual-test.txt
+          # Dateinamen basierend auf der aktuellen Minute und Stunde (die dem Cron-Trigger entspricht) bestimmen
+          # Für manuelle Ausführungen "manual-test.txt" verwenden
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            case $CURRENT_MINUTE in
-              "20") FILE_NAME="1501.txt" ;;
-              "21") FILE_NAME="1502.txt" ;;
-              "22") FILE_NAME="1503.txt" ;;
-              # The '18' cron job is handled by the 'manual-test.txt' for now if not explicitly assigned
-              *) FILE_NAME="error-unknown-minute.txt" ;; # Fallback for unexpected scheduled minute
-            esac
-          else # workflow_dispatch (manual trigger)
+            if [[ "$CURRENT_HOUR" == "03" && "$CURRENT_MINUTE" == "30" ]]; then
+              FILE_NAME="1501.txt" # Entspricht 5:30 MESZ
+            elif [[ "$CURRENT_HOUR" == "04" && "$CURRENT_MINUTE" == "00" ]]; then
+              FILE_NAME="1502.txt" # Entspricht 6:00 MESZ
+            elif [[ "$CURRENT_HOUR" == "04" && "$CURRENT_MINUTE" == "30" ]]; then
+              FILE_NAME="1503.txt" # Entspricht 6:30 MESZ
+            else
+              # Der '31' Cron-Job fällt in diesen Fall, möglicherweise überschreibt er error-unknown-minute.txt oder manual-test.txt
+              # Dies ist akzeptabel, da die Daten für die Minuten 30, 00, 30 bereits in dedizierten Dateien gespeichert sind.
+              FILE_NAME="error-unknown-minute.txt" # Fallback für unerwartete geplante Minute
+            fi
+          else # workflow_dispatch (manuelles Auslösen)
             FILE_NAME="manual-test.txt"
           fi
 
-          echo "--- Starting data capture for: $FILE_NAME ---"
+          echo "--- Starte Datenerfassung für: $FILE_NAME ---"
 
-          # Use -s (silent) and -w (write-out) to get HTTP status code
-          # The %{http_code} will be appended to the output
+          # -s (silent) und -w (write-out) verwenden, um den HTTP-Statuscode zu erhalten
+          # %{http_code} wird an die Ausgabe angehängt
           CURL_OUTPUT=$(curl -s -w "%{http_code}" 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
-          # Extract the last 3 characters as the HTTP code
+          # Die letzten 3 Zeichen als HTTP-Code extrahieren
           HTTP_CODE="${CURL_OUTPUT:(-3)}"
-          # Extract the actual data by removing the HTTP code from the end
+          # Die eigentlichen Daten extrahieren, indem der HTTP-Code vom Ende entfernt wird
           DATA="${CURL_OUTPUT:0:${#CURL_OUTPUT}-3}"
 
-          echo "HTTP Status Code from curl: $HTTP_CODE"
-          echo "Raw DATA from curl: '${DATA}'" # Print with quotes to visualize whitespace
+          echo "HTTP Status Code von curl: $HTTP_CODE"
+          echo "Rohe DATEN von curl: '${DATA}'" # Mit Anführungszeichen drucken, um Leerzeichen zu visualisieren
 
-          # Check if curl returned a successful HTTP status code
+          # Überprüfen, ob curl einen erfolgreichen HTTP-Statuscode zurückgegeben hat
           if [[ "$HTTP_CODE" -ne 200 ]]; then
-            echo "Error: curl returned HTTP status code $HTTP_CODE. Data might be incomplete or invalid."
-            echo "Full curl output: '$CURL_OUTPUT'"
-            exit 1 # Fail the step if HTTP status is not 200
+            echo "Fehler: curl hat den HTTP-Statuscode $HTTP_CODE zurückgegeben. Daten könnten unvollständig oder ungültig sein."
+            echo "Vollständige curl-Ausgabe: '$CURL_OUTPUT'"
+            exit 1 # Schritt fehlschlagen lassen, wenn der HTTP-Status nicht 200 ist
           fi
 
-          # Check if DATA is empty after stripping HTTP code
+          # Überprüfen, ob DATA nach dem Entfernen des HTTP-Codes leer ist
           if [ -z "$DATA" ]; then
-            echo "Error: DATA from curl is empty. This could be a network issue or the URL returned no content."
-            exit 1 # Fail the step if data is empty
+            echo "Fehler: DATEN von curl sind leer. Dies könnte ein Netzwerkproblem sein oder die URL hat keinen Inhalt zurückgegeben."
+            exit 1 # Schritt fehlschlagen lassen, wenn Daten leer sind
           fi
 
-          # Strip all whitespace characters (including newlines, spaces, tabs) from DATA
+          # Alle Leerzeichen (einschließlich Zeilenumbrüche, Leerzeichen, Tabs) aus DATA entfernen
           FREE=$(echo "$DATA" | tr -d '[:space:]')
 
-          # Basic validation to ensure FREE is a number
+          # Grundlegende Validierung, um sicherzustellen, dass FREE eine Zahl ist
           if ! [[ "$FREE" =~ ^[0-9]+$ ]]; then
-            echo "Error: Extracted value '$FREE' is not a valid number."
-            exit 1 # Fail if the extracted data is not a number
+            echo "Fehler: Der extrahierte Wert '$FREE' ist keine gültige Zahl."
+            exit 1 # Fehlschlagen, wenn die extrahierten Daten keine Zahl sind
           fi
 
-          echo "Extracted FREE spaces: $FREE"
+          echo "Extrahierte freie Plätze: $FREE"
 
-          # Ensure the file exists before writing and write the data
+          # Sicherstellen, dass die Datei existiert, bevor geschrieben wird, und die Daten schreiben
           touch "$FILE_NAME"
           echo "$FREE" > "$FILE_NAME"
-          echo "Successfully wrote $FREE to $FILE_NAME"
+          echo "Erfolgreich $FREE in $FILE_NAME geschrieben"
 
-          # Output the filename for subsequent steps if needed
+          # Dateinamen für nachfolgende Schritte ausgeben, falls erforderlich
           echo "captured_file=$FILE_NAME" >> $GITHUB_OUTPUT
 
       - name: Speichere alle .txt Dateien als Artifact
@@ -89,43 +96,43 @@ jobs:
         with:
           name: parkstatus
           path: "*.txt"
-          # retention-days: 1 # Optional: Keep history for 1 day
+          # retention-days: 1 # Optional: Verlauf für 1 Tag beibehalten
 
   mailversand:
-    needs: erfassen # Ensure this job runs after 'erfassen'
+    needs: erfassen # Sicherstellen, dass dieser Job nach 'erfassen' läuft
     runs-on: ubuntu-latest
     steps:
-      # No actions/checkout@v4 or pip install requests needed here, as artifacts are downloaded.
+      # Hier sind keine actions/checkout@v4 oder pip install requests erforderlich, da Artefakte heruntergeladen werden.
 
       - name: Lade Dateien aus vorherigen Jobs
         uses: actions/download-artifact@v4
         with:
           name: parkstatus
-          path: . # Download to current directory
+          path: . # In das aktuelle Verzeichnis herunterladen
 
       - name: Lade Parkdaten und bereite Nachricht vor
         id: load
         run: |
-          # Use default value of -1 if files are not found (e.g., if only one cron triggered)
-          free_15=$(cat 1501.txt 2>/dev/null || echo "-1")
-          free_16=$(cat 1502.txt 2>/dev/null || echo "-1")
-          free_17=$(cat 1503.txt 2>/dev/null || echo "-1")
+          # Standardwert -1 verwenden, wenn Dateien nicht gefunden werden (z.B. wenn nur ein Cron ausgelöst wurde)
+          free_530=$(cat 1501.txt 2>/dev/null || echo "-1")
+          free_600=$(cat 1502.txt 2>/dev/null || echo "-1")
+          free_630=$(cat 1503.txt 2>/dev/null || echo "-1")
           manual_free=$(cat manual-test.txt 2>/dev/null || echo "-1")
 
-          echo "free_15=$free_15" >> $GITHUB_OUTPUT
-          echo "free_16=$free_16" >> $GITHUB_OUTPUT
-          echo "free_17=$free_17" >> $GITHUB_OUTPUT
+          echo "free_530=$free_530" >> $GITHUB_OUTPUT
+          echo "free_600=$free_600" >> $GITHUB_OUTPUT
+          echo "free_630=$free_630" >> $GITHUB_OUTPUT
           echo "manual_free=$manual_free" >> $GITHUB_OUTPUT
 
       - name: Datum bestimmen
         id: datum
         run: |
           echo "today=$(date '+%d.%m.%Y')" >> $GITHUB_OUTPUT
-          echo "current_minute=$(date +%M)" >> $GITHUB_OUTPUT # Get current minute for conditional email sending
+          echo "current_minute=$(date +%M)" >> $GITHUB_OUTPUT # Aktuelle Minute für bedingten E-Mail-Versand abrufen
 
       - name: E-Mail senden
-        # Only send email if manually triggered OR if it's the 23rd minute (UTC)
-        if: github.event_name == 'workflow_dispatch' || steps.datum.outputs.current_minute == '23'
+        # E-Mail nur senden, wenn manuell ausgelöst ODER wenn es die 31. Minute (UTC) ist
+        if: github.event_name == 'workflow_dispatch' || steps.datum.outputs.current_minute == '31'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_HOST }}
@@ -136,15 +143,15 @@ jobs:
           to:             ${{ secrets.EMAIL_TO }}
           from:           ${{ secrets.EMAIL_FROM }}
           body: |
-            Guten Nachmittag,
+            Guten Morgen,
 
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
             ${{ github.event_name == 'schedule' && format('
-            – Um 23:20 Uhr: {0} freie Plätze
-            – Um 23:21 Uhr: {1} freie Plätze
-            – Um 23:22 Uhr: {2} freie Plätze
-            ', steps.load.outputs.free_15, steps.load.outputs.free_16, steps.load.outputs.free_17) || '' }}
+            – Um 05:30 Uhr: {0} freie Plätze
+            – Um 06:00 Uhr: {1} freie Plätze
+            – Um 06:30 Uhr: {2} freie Plätze
+            ', steps.load.outputs.free_530, steps.load.outputs.free_600, steps.load.outputs.free_630) || '' }}
 
             ${{ github.event_name == 'workflow_dispatch' && format('
             – Manuell erfasst: {0} freie Plätze
@@ -153,4 +160,4 @@ jobs:
             Viele Grüße!
 
       - name: Lösche temporäre Dateien
-        run: rm -f *.txt || true # Use -f for force removal, || true to prevent job failure if no files exist
+        run: rm -f *.txt || true # -f für erzwungenes Entfernen, || true um Jobfehler zu verhindern, wenn keine Dateien existieren
