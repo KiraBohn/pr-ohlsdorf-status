@@ -3,13 +3,11 @@ name: Parkstatus Ohlsdorf
 on:
   schedule:
     # These cron expressions trigger the workflow at specific minutes.
-    # Note: GitHub Actions cron times are in UTC. '18' is 6 PM UTC.
-    # To get 20:15, 20:16, 20:17, 20:18 MESZ (UTC+2), the UTC times would be 18:15, 18:16, 18:17, 18:18.
-    # Your current cron values seem correct for 20:15-20:18 MESZ if the server is UTC.
-    - cron: '15 18 * * *'
-    - cron: '16 18 * * *'
-    - cron: '17 18 * * *'
-    - cron: '18 18 * * *'
+    # Note: GitHub Actions cron times are in UTC. '21' is 9 PM UTC.
+    # To get 23:20, 23:21, 23:22 MESZ (UTC+2), the UTC times would be 21:20, 21:21, 21:22.
+    - cron: '20 21 * * *'
+    - cron: '21 21 * * *'
+    - cron: '22 21 * * *'
   workflow_dispatch: # Allows manual triggering
 
 jobs:
@@ -31,9 +29,9 @@ jobs:
           # For manual runs, use manual-test.txt
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             case $CURRENT_MINUTE in
-              "15") FILE_NAME="1501.txt" ;;
-              "16") FILE_NAME="1502.txt" ;;
-              "17") FILE_NAME="1503.txt" ;;
+              "20") FILE_NAME="1501.txt" ;;
+              "21") FILE_NAME="1502.txt" ;;
+              "22") FILE_NAME="1503.txt" ;;
               # The '18' cron job is handled by the 'manual-test.txt' for now if not explicitly assigned
               *) FILE_NAME="error-unknown-minute.txt" ;; # Fallback for unexpected scheduled minute
             esac
@@ -67,10 +65,8 @@ jobs:
             exit 1 # Fail the step if data is empty
           fi
 
-          # --- FIX ---
           # Strip all whitespace characters (including newlines, spaces, tabs) from DATA
           FREE=$(echo "$DATA" | tr -d '[:space:]')
-          # --- END FIX ---
 
           # Basic validation to ensure FREE is a number
           if ! [[ "$FREE" =~ ^[0-9]+$ ]]; then
@@ -123,9 +119,13 @@ jobs:
 
       - name: Datum bestimmen
         id: datum
-        run: echo "today=$(date '+%d.%m.%Y')" >> $GITHUB_OUTPUT
+        run: |
+          echo "today=$(date '+%d.%m.%Y')" >> $GITHUB_OUTPUT
+          echo "current_minute=$(date +%M)" >> $GITHUB_OUTPUT # Get current minute for conditional email sending
 
       - name: E-Mail senden
+        # Only send email if manually triggered OR if it's the 23rd minute (UTC)
+        if: github.event_name == 'workflow_dispatch' || steps.datum.outputs.current_minute == '23'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_HOST }}
@@ -141,9 +141,9 @@ jobs:
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
             ${{ github.event_name == 'schedule' && format('
-            – Um 20:15 Uhr: {0} freie Plätze
-            – Um 20:16 Uhr: {1} freie Plätze
-            – Um 20:17 Uhr: {2} freie Plätze
+            – Um 23:20 Uhr: {0} freie Plätze
+            – Um 23:21 Uhr: {1} freie Plätze
+            – Um 23:22 Uhr: {2} freie Plätze
             ', steps.load.outputs.free_15, steps.load.outputs.free_16, steps.load.outputs.free_17) || '' }}
 
             ${{ github.event_name == 'workflow_dispatch' && format('
