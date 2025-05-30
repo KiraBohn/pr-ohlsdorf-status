@@ -2,15 +2,15 @@ name: Parkstatus Ohlsdorf
 
 on:
   schedule:
-    - cron: '1 13 * * *'  # 15:01 Uhr (UTC)
-    - cron: '2 13 * * *'  # 15:02 Uhr (UTC)
-    - cron: '3 13 * * *'  # 15:03 Uhr (UTC)
-    - cron: '4 13 * * *'  # 15:04 Uhr (UTC)
+    - cron: '31 17 * * *'  # 19:31 Uhr MESZ
+    - cron: '32 17 * * *'  # 19:32 Uhr MESZ
+    - cron: '33 17 * * *'  # 19:33 Uhr MESZ
+    - cron: '34 17 * * *'  # 19:34 Uhr MESZ
   workflow_dispatch:
 
 jobs:
   erfassen:
-    if: github.event.schedule != '4 13 * * *'
+    if: github.event.schedule != '34 17 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,9 +22,9 @@ jobs:
         run: |
           CRON_EXPR="${{ github.event.schedule }}"
           case "$CRON_EXPR" in
-            "1 13 * * *") FILE="1501.txt" ;;
-            "2 13 * * *") FILE="1502.txt" ;;
-            "3 13 * * *") FILE="1503.txt" ;;
+            "31 17 * * *") FILE="1501.txt" ;;
+            "32 17 * * *") FILE="1502.txt" ;;
+            "33 17 * * *") FILE="1503.txt" ;;
             *) echo "Unbekannter Zeitplan: $CRON_EXPR"; exit 1 ;;
           esac
 
@@ -32,22 +32,25 @@ jobs:
           FREE=$(echo $DATA | grep -oP '"free"\s*:\s*\K\d+')
           echo "$FREE" > "$FILE"
 
-      - name: Commit Datei
-        run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add *.txt
-          git commit -m "Parkdaten gespeichert"
-          git push
+      - name: Speichere Datei als Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: parkstatus
+          path: "*.txt"
 
   mailversand:
-    if: github.event.schedule == '4 13 * * *'
+    if: github.event.schedule == '34 17 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Installiere Abhängigkeiten
         run: pip install requests
+
+      - name: Lade Dateien aus vorherigen Jobs
+        uses: actions/download-artifact@v4
+        with:
+          name: parkstatus
 
       - name: Lade Parkdaten und bereite Nachricht vor
         id: load
@@ -78,11 +81,11 @@ jobs:
 
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
-            – Um 15:01 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
-            – Um 15:02 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
-            – Um 15:03 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
+            – Um 19:31 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
+            – Um 19:32 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
+            – Um 19:33 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
 
             Viele Grüße!
 
       - name: Lösche temporäre Dateien
-        run: rm 1501.txt 1502.txt 1503.txt
+        run: rm 1501.txt 1502.txt 1503.txt || true
