@@ -20,10 +20,10 @@ jobs:
 
       - id: status
         run: |
-          free=$(python3 ohlsdorf_status_ws.py | grep "freie Stellplätze" | awk '{print $3}')
-          used=$(python3 ohlsdorf_status_ws.py | grep "belegte Stellplätze" | awk '{print $3}')
-          echo "FREE=$free" >> $GITHUB_OUTPUT
-          echo "USED=$used" >> $GITHUB_OUTPUT
+          output=$(python3 ohlsdorf_status_ws.py)
+          echo "$output"
+          echo "free=$(echo "$output" | grep 'freie Stellplätze' | awk '{print $4}')" >> $GITHUB_OUTPUT
+          echo "used=$(echo "$output" | grep 'belegte Stellplätze' | awk '{print $4}')" >> $GITHUB_OUTPUT
 
       - uses: dawidd6/action-send-mail@v3
         with:
@@ -31,7 +31,7 @@ jobs:
           server_port:    ${{ secrets.SMTP_PORT }}
           username:       ${{ secrets.SMTP_USERNAME }}
           password:       ${{ secrets.SMTP_PASSWORD }}
-          subject:        "Ohlsdorf P+R-Status am $(date +'%Y-%m-%d')"
+          subject:        "Ohlsdorf P+R-Status am ${{ github.event.date || github.run_started_at }}"
           to:             ${{ secrets.EMAIL_TO }}
           from:           ${{ secrets.EMAIL_FROM }}
           body:           |
@@ -39,7 +39,7 @@ jobs:
 
             hier die aktuellen Zahlen der P+R-Anlage Ohlsdorf:
 
-            – Freie Stellplätze: ${{ steps.status.outputs.FREE }}
-            – Belegte Stellplätze: ${{ steps.status.outputs.USED }}
+            – Freie Stellplätze: ${{ steps.status.outputs.free }}
+            – Belegte Stellplätze: ${{ steps.status.outputs.used }}
 
             Viele Grüße!
