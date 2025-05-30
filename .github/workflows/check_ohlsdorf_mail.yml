@@ -34,22 +34,62 @@ jobs:
               "15") FILE_NAME="1501.txt" ;;
               "16") FILE_NAME="1502.txt" ;;
               "17") FILE_NAME="1503.txt" ;;
-              # The '18' cron job is handled in the next part if needed, or by not assigning it a specific file here
+              # The '18' cron job is handled by the 'manual-test.txt' for now if not explicitly assigned
               *) FILE_NAME="error-unknown-minute.txt" ;; # Fallback for unexpected scheduled minute
             esac
           else # workflow_dispatch (manual trigger)
             FILE_NAME="manual-test.txt"
           fi
 
-          echo "Capturing data to: $FILE_NAME"
+          echo "--- Starting data capture for: $FILE_NAME ---"
 
-          DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
+          # Use -s (silent) and -w (write-out) to get HTTP status code
+          # The %{http_code} will be appended to the output
+          CURL_OUTPUT=$(curl -s -w "%{http_code}" 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
+          # Extract the last 3 characters as the HTTP code
+          HTTP_CODE="${CURL_OUTPUT:(-3)}"
+          # Extract the actual data by removing the HTTP code from the end
+          DATA="${CURL_OUTPUT:0:${#CURL_OUTPUT}-3}"
+
+          echo "HTTP Status Code from curl: $HTTP_CODE"
+          echo "Raw DATA from curl (first 200 chars): ${DATA:0:200}..." # Print partial data for brevity in logs
+
+          # Check if curl returned a successful HTTP status code
+          if [[ "$HTTP_CODE" -ne 200 ]]; then
+            echo "Error: curl returned HTTP status code $HTTP_CODE. Data might be incomplete or invalid."
+            echo "Full curl output: $CURL_OUTPUT"
+            exit 1 # Fail the step if HTTP status is not 200
+          fi
+
+          # Check if DATA is empty after stripping HTTP code
+          if [ -z "$DATA" ]; then
+            echo "Error: DATA from curl is empty. This could be a network issue or the URL returned no content."
+            exit 1 # Fail the step if data is empty
+          fi
+
+          # Attempt to extract FREE spaces using grep
           FREE=$(echo "$DATA" | grep -oP '"free"\s*:\s*\K\d+')
+          GREP_EXIT_CODE=$? # Capture grep's exit code
 
-          # Ensure the file exists before writing
+          echo "Grep exit code: $GREP_EXIT_CODE"
+
+          if [ "$GREP_EXIT_CODE" -ne 0 ]; then
+            echo "Error: Grep failed to find 'free' spaces or exited with an error. This might indicate a change in the data format or an issue with the regex."
+            echo "Data that grep processed: $DATA"
+            exit 1 # Fail the step if grep didn't find a match
+          fi
+
+          if [ -z "$FREE" ]; then
+            echo "Warning: 'free' value extracted by grep is empty. This might mean 0 free spaces, or a subtle format change not caught by the grep exit code."
+            FREE="0" # Default to 0 if empty for robustness in the email
+          fi
+
+          echo "Extracted FREE spaces: $FREE"
+
+          # Ensure the file exists before writing and write the data
           touch "$FILE_NAME"
           echo "$FREE" > "$FILE_NAME"
-          echo "Captured free spaces: $FREE"
+          echo "Successfully wrote $FREE to $FILE_NAME"
 
           # Output the filename for subsequent steps if needed
           echo "captured_file=$FILE_NAME" >> $GITHUB_OUTPUT
@@ -59,8 +99,7 @@ jobs:
         with:
           name: parkstatus
           path: "*.txt"
-          # Optional: Keep history if needed, but for daily reports, usually not.
-          # retention-days: 1
+          # retention-days: 1 # Optional: Keep history for 1 day
 
   mailversand:
     needs: erfassen # Ensure this job runs after 'erfassen'
@@ -81,19 +120,12 @@ jobs:
           free_15=$(cat 1501.txt 2>/dev/null || echo "-1")
           free_16=$(cat 1502.txt 2>/dev/null || echo "-1")
           free_17=$(cat 1503.txt 2>/dev/null || echo "-1")
-          # For the 18th minute, if you want to capture and report it separately,
-          # you'd need a similar logic for a '1504.txt' or whatever you choose for the 18th minute.
-          # Currently, your setup only handles 15, 16, 17 specifically.
+          manual_free=$(cat manual-test.txt 2>/dev/null || echo "-1")
 
           echo "free_15=$free_15" >> $GITHUB_OUTPUT
           echo "free_16=$free_16" >> $GITHUB_OUTPUT
           echo "free_17=$free_17" >> $GITHUB_OUTPUT
-
-          # If it's a manual run, provide specific output for the manual file
-          if [ -f manual-test.txt ]; then
-            manual_free=$(cat manual-test.txt)
-            echo "manual_free=$manual_free" >> $GITHUB_OUTPUT
-          fi
+          echo "manual_free=$manual_free" >> $GITHUB_OUTPUT
 
       - name: Datum bestimmen
         id: datum
@@ -114,14 +146,15 @@ jobs:
 
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
-            # Only show scheduled times if it's a scheduled run
-            ${{ github.event_name == 'schedule' && format('– Um 20:15 Uhr: {0} freie Plätze', steps.load.outputs.free_15) || '' }}
-            ${{ github.event_name == 'schedule' && format('– Um 20:16 Uhr: {0} freie Plätze', steps.load.outputs.free_16) || '' }}
-            ${{ github.event_name == 'schedule' && format('– Um 20:17 Uhr: {0} freie Plätze', steps.load.outputs.free_17) || '' }}
-            # If you want to include 18:18, you'd add a 1504.txt logic and similar line here.
+            ${{ github.event_name == 'schedule' && format('
+            – Um 20:15 Uhr: {0} freie Plätze
+            – Um 20:16 Uhr: {1} freie Plätze
+            – Um 20:17 Uhr: {2} freie Plätze
+            ', steps.load.outputs.free_15, steps.load.outputs.free_16, steps.load.outputs.free_17) || '' }}
 
-            # Show manual test result if it's a manual run
-            ${{ github.event_name == 'workflow_dispatch' && format('– Manuell erfasst: {0} freie Plätze', steps.load.outputs.manual_free) || '' }}
+            ${{ github.event_name == 'workflow_dispatch' && format('
+            – Manuell erfasst: {0} freie Plätze
+            ', steps.load.outputs.manual_free) || '' }}
 
             Viele Grüße!
 
