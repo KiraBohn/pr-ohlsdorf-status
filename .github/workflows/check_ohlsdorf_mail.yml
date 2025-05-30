@@ -10,7 +10,7 @@ on:
 
 jobs:
   erfassen:
-    if: github.event.schedule != '18 18 * * *'
+    # Bedingung entfernt für manuellen Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,10 +22,10 @@ jobs:
         run: |
           CRON_EXPR="${{ github.event.schedule }}"
           case $CRON_EXPR in
-            15\ 18\ *\ *\ *) FILE="1501.txt" ;;
-            16\ 18\ *\ *\ *) FILE="1502.txt" ;;
-            17\ 18\ *\ *\ *) FILE="1503.txt" ;;
-            *) echo "Unbekannter Zeitplan: $CRON_EXPR"; exit 1 ;;
+            "15 18 * * *") FILE="1501.txt" ;;
+            "16 18 * * *") FILE="1502.txt" ;;
+            "17 18 * * *") FILE="1503.txt" ;;
+            *) FILE="manual-test.txt" ;;
           esac
 
           DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
@@ -39,7 +39,8 @@ jobs:
           path: "*.txt"
 
   mailversand:
-    if: github.event.schedule == '18 18 * * *'
+    # Bedingung entfernt für manuellen Test
+    needs: erfassen
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,9 +56,9 @@ jobs:
       - name: Lade Parkdaten und bereite Nachricht vor
         id: load
         run: |
-          free_530=$(cat 1501.txt)
-          free_600=$(cat 1502.txt)
-          free_630=$(cat 1503.txt)
+          free_530=$(cat 1501.txt 2>/dev/null || echo "-1")
+          free_600=$(cat 1502.txt 2>/dev/null || echo "-1")
+          free_630=$(cat 1503.txt 2>/dev/null || echo "-1")
           echo "free_530=$free_530" >> $GITHUB_OUTPUT
           echo "free_600=$free_600" >> $GITHUB_OUTPUT
           echo "free_630=$free_630" >> $GITHUB_OUTPUT
@@ -88,4 +89,4 @@ jobs:
             Viele Grüße!
 
       - name: Lösche temporäre Dateien
-        run: rm 1501.txt 1502.txt 1503.txt || true
+        run: rm *.txt || true
