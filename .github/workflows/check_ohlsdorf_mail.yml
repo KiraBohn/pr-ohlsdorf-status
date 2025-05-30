@@ -20,14 +20,12 @@ jobs:
 
       - name: Parkdaten erfassen
         run: |
-          MINUTE=$(date +"%M")
-          HOUR=$(date +"%H")
-
-          if [ "$HOUR" = "05" ] && [ "$MINUTE" = "30" ]; then FILE="0530.txt";
-          elif [ "$HOUR" = "06" ] && [ "$MINUTE" = "00" ]; then FILE="0600.txt";
-          elif [ "$HOUR" = "06" ] && [ "$MINUTE" = "30" ]; then FILE="0630.txt";
-          else echo "Uhrzeit nicht erkannt: $HOUR:$MINUTE"; exit 1;
-          fi
+          case "${{ github.event.schedule }}" in
+            "30 3 * * *") FILE="0530.txt" ;;
+            "0 4 * * *")  FILE="0600.txt" ;;
+            "30 4 * * *") FILE="0630.txt" ;;
+            *) echo "Unbekannter Zeitplan: ${{ github.event.schedule }}"; exit 1 ;;
+          esac
 
           DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
           FREE=$(echo $DATA | grep -oP '"free"\s*:\s*\K\d+')
