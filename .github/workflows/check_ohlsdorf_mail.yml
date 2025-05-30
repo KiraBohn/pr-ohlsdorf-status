@@ -2,15 +2,15 @@ name: Parkstatus Ohlsdorf
 
 on:
   schedule:
-    - cron: '31 17 * * *'  # 19:31 Uhr MESZ
-    - cron: '32 17 * * *'  # 19:32 Uhr MESZ
-    - cron: '33 17 * * *'  # 19:33 Uhr MESZ
-    - cron: '34 17 * * *'  # 19:34 Uhr MESZ
+    - cron: '15 18 * * *'  # 20:15 Uhr MESZ
+    - cron: '16 18 * * *'  # 20:16 Uhr MESZ
+    - cron: '17 18 * * *'  # 20:17 Uhr MESZ
+    - cron: '18 18 * * *'  # 20:18 Uhr MESZ
   workflow_dispatch:
 
 jobs:
   erfassen:
-    if: github.event.schedule != '34 17 * * *'
+    if: github.event.schedule != '18 18 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,10 +21,10 @@ jobs:
       - name: Parkdaten erfassen
         run: |
           CRON_EXPR="${{ github.event.schedule }}"
-          case "$CRON_EXPR" in
-            "31 17 * * *") FILE="1501.txt" ;;
-            "32 17 * * *") FILE="1502.txt" ;;
-            "33 17 * * *") FILE="1503.txt" ;;
+          case $CRON_EXPR in
+            15\ 18\ *\ *\ *) FILE="1501.txt" ;;
+            16\ 18\ *\ *\ *) FILE="1502.txt" ;;
+            17\ 18\ *\ *\ *) FILE="1503.txt" ;;
             *) echo "Unbekannter Zeitplan: $CRON_EXPR"; exit 1 ;;
           esac
 
@@ -39,7 +39,7 @@ jobs:
           path: "*.txt"
 
   mailversand:
-    if: github.event.schedule == '34 17 * * *'
+    if: github.event.schedule == '18 18 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,9 +81,9 @@ jobs:
 
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
-            – Um 19:31 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
-            – Um 19:32 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
-            – Um 19:33 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
+            – Um 20:15 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
+            – Um 20:16 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
+            – Um 20:17 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
 
             Viele Grüße!
 
