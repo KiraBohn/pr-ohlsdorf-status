@@ -2,15 +2,15 @@ name: Parkstatus Ohlsdorf
 
 on:
   schedule:
-    - cron: '30 3 * * *'  # 05:30 Uhr (UTC)
-    - cron: '0 4 * * *'   # 06:00 Uhr (UTC)
-    - cron: '30 4 * * *'  # 06:30 Uhr (UTC)
-    - cron: '31 4 * * *'  # 06:31 Uhr (UTC)
+    - cron: '45 12 * * *'  # 14:45 Uhr (UTC)
+    - cron: '46 12 * * *'  # 14:46 Uhr (UTC)
+    - cron: '47 12 * * *'  # 14:47 Uhr (UTC)
+    - cron: '48 12 * * *'  # 14:48 Uhr (UTC)
   workflow_dispatch:
 
 jobs:
   erfassen:
-    if: github.event.schedule != '31 4 * * *'
+    if: github.event.schedule != '48 12 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,11 +20,12 @@ jobs:
 
       - name: Parkdaten erfassen
         run: |
-          case "${{ github.event.schedule }}" in
-            "30 3 * * *") FILE="0530.txt" ;;
-            "0 4 * * *")  FILE="0600.txt" ;;
-            "30 4 * * *") FILE="0630.txt" ;;
-            *) echo "Unbekannter Zeitplan: ${{ github.event.schedule }}"; exit 1 ;;
+          CRON_EXPR="${{ github.event.schedule }}"
+          case "$CRON_EXPR" in
+            "45 12 * * *") FILE="1445.txt" ;;
+            "46 12 * * *") FILE="1446.txt" ;;
+            "47 12 * * *") FILE="1447.txt" ;;
+            *) echo "Unbekannter Zeitplan: $CRON_EXPR"; exit 1 ;;
           esac
 
           DATA=$(curl -s 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
@@ -40,7 +41,7 @@ jobs:
           git push
 
   mailversand:
-    if: github.event.schedule == '31 4 * * *'
+    if: github.event.schedule == '48 12 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,9 +52,9 @@ jobs:
       - name: Lade Parkdaten und bereite Nachricht vor
         id: load
         run: |
-          free_530=$(cat 0530.txt)
-          free_600=$(cat 0600.txt)
-          free_630=$(cat 0630.txt)
+          free_530=$(cat 1445.txt)
+          free_600=$(cat 1446.txt)
+          free_630=$(cat 1447.txt)
           echo "free_530=$free_530" >> $GITHUB_OUTPUT
           echo "free_600=$free_600" >> $GITHUB_OUTPUT
           echo "free_630=$free_630" >> $GITHUB_OUTPUT
@@ -73,15 +74,15 @@ jobs:
           to:             ${{ secrets.EMAIL_TO }}
           from:           ${{ secrets.EMAIL_FROM }}
           body: |
-            Guten Morgen,
+            Guten Nachmittag,
 
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
-            – Um 05:30 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
-            – Um 06:00 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
-            – Um 06:30 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
+            – Um 14:45 Uhr: ${{ steps.load.outputs.free_530 }} freie Plätze
+            – Um 14:46 Uhr: ${{ steps.load.outputs.free_600 }} freie Plätze
+            – Um 14:47 Uhr: ${{ steps.load.outputs.free_630 }} freie Plätze
 
             Viele Grüße!
 
       - name: Lösche temporäre Dateien
-        run: rm 0530.txt 0600.txt 0630.txt
+        run: rm 1445.txt 1446.txt 1447.txt
