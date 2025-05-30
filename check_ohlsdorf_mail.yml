@@ -1,0 +1,45 @@
+name: "P+R Ohlsdorf Status mit E-Mail"
+
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-and-mail:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - run: pip install --no-cache -r requirements.txt
+
+      - id: status
+        run: |
+          free=$(python3 ohlsdorf_status_ws.py | grep "freie Stellplätze" | awk '{print $3}')
+          used=$(python3 ohlsdorf_status_ws.py | grep "belegte Stellplätze" | awk '{print $3}')
+          echo "FREE=$free" >> $GITHUB_OUTPUT
+          echo "USED=$used" >> $GITHUB_OUTPUT
+
+      - uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port:    ${{ secrets.SMTP_PORT }}
+          username:       ${{ secrets.SMTP_USERNAME }}
+          password:       ${{ secrets.SMTP_PASSWORD }}
+          subject:        "Ohlsdorf P+R-Status am $(date +'%Y-%m-%d')"
+          to:             ${{ secrets.EMAIL_TO }}
+          from:           ${{ secrets.EMAIL_FROM }}
+          body:           |
+            Guten Morgen,
+
+            hier die aktuellen Zahlen der P+R-Anlage Ohlsdorf:
+
+            – Freie Stellplätze: ${{ steps.status.outputs.FREE }}
+            – Belegte Stellplätze: ${{ steps.status.outputs.USED }}
+
+            Viele Grüße!
