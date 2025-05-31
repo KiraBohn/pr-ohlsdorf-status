@@ -2,19 +2,21 @@ name: Parkstatus Ohlsdorf
 
 on:
   schedule:
-    # Diese Cron-Ausdrücke lösen den Workflow zu bestimmten Minuten aus.
+    # Diese Cron-Ausdrücke lösen den 'erfassen'-Workflow zu bestimmten Minuten aus.
     # Hinweis: GitHub Actions Cron-Zeiten sind in UTC.
-    # Um 5:30, 6:00, 6:30 MESZ (UTC+2) zu erhalten, wären die UTC-Zeiten 3:30, 4:00, 4:30.
-    - cron: '30 3 * * *' # 5:30 MESZ
-    - cron: '0 4 * * *'  # 6:00 MESZ
-    - cron: '30 4 * * *' # 6:30 MESZ
-    # Cron-Job hinzugefügt, um den Workflow um 6:31 MESZ (4:31 UTC) für den E-Mail-Versand auszulösen
-    - cron: '31 4 * * *'
-  workflow_dispatch: # Ermöglicht manuelles Auslösen
+    # Um 9:00, 9:10, 9:20 MESZ (UTC+2) zu erhalten, wären die UTC-Zeiten 7:00, 7:10, 7:20.
+    - cron: '0 7 * * *'  # 9:00 MESZ
+    - cron: '10 7 * * *' # 9:10 MESZ
+    - cron: '20 7 * * *' # 9:20 MESZ
+    # Dies ist der Cron-Job, der die E-Mail-Versandlogik auslösen soll.
+    - cron: '31 7 * * *' # 9:31 MESZ (für den E-Mail-Versand)
+  workflow_dispatch: # Ermöglicht manuelles Auslösen des gesamten Workflows
 
 jobs:
   erfassen:
     runs-on: ubuntu-latest
+    outputs:
+      is_email_trigger_run: ${{ steps.set_email_flag.outputs.is_email_trigger_run }} # Exponiert das Flag
     steps:
       - uses: actions/checkout@v4
 
@@ -22,25 +24,24 @@ jobs:
         run: pip install requests
 
       - name: Parkdaten erfassen
-        id: capture_data # Fügt eine ID zu diesem Schritt hinzu
+        id: capture_data
         run: |
-          CURRENT_MINUTE=$(date +%M) # Aktuelle Minute abrufen
-          CURRENT_HOUR=$(date +%H)   # Aktuelle Stunde abrufen
+          CURRENT_MINUTE=$(date +%M)
+          CURRENT_HOUR=$(date +%H)
           FILE_NAME=""
 
-          # Dateinamen basierend auf der aktuellen Minute und Stunde (die dem Cron-Trigger entspricht) bestimmen
-          # Für manuelle Ausführungen "manual-test.txt" verwenden
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            if [[ "$CURRENT_HOUR" == "03" && "$CURRENT_MINUTE" == "30" ]]; then
-              FILE_NAME="1501.txt" # Entspricht 5:30 MESZ
-            elif [[ "$CURRENT_HOUR" == "04" && "$CURRENT_MINUTE" == "00" ]]; then
-              FILE_NAME="1502.txt" # Entspricht 6:00 MESZ
-            elif [[ "$CURRENT_HOUR" == "04" && "$CURRENT_MINUTE" == "30" ]]; then
-              FILE_NAME="1503.txt" # Entspricht 6:30 MESZ
+            if [[ "$CURRENT_HOUR" == "07" && "$CURRENT_MINUTE" == "00" ]]; then
+              FILE_NAME="1501.txt" # Entspricht 9:00 MESZ
+            elif [[ "$CURRENT_HOUR" == "07" && "$CURRENT_MINUTE" == "10" ]]; then
+              FILE_NAME="1502.txt" # Entspricht 9:10 MESZ
+            elif [[ "$CURRENT_HOUR" == "07" && "$CURRENT_MINUTE" == "20" ]]; then
+              FILE_NAME="1503.txt" # Entspricht 9:20 MESZ
             else
-              # Der '31' Cron-Job fällt in diesen Fall, möglicherweise überschreibt er error-unknown-minute.txt oder manual-test.txt
-              # Dies ist akzeptabel, da die Daten für die Minuten 30, 00, 30 bereits in dedizierten Dateien gespeichert sind.
-              FILE_NAME="error-unknown-minute.txt" # Fallback für unerwartete geplante Minute
+              # Dieser Fall ist für den 9:31 MESZ Cron-Job.
+              # Die Daten werden dennoch erfasst, aber in eine temporäre Datei geschrieben,
+              # da die Hauptdaten bereits von den vorherigen Läufen stammen.
+              FILE_NAME="temp-trigger.txt"
             fi
           else # workflow_dispatch (manuelles Auslösen)
             FILE_NAME="manual-test.txt"
@@ -48,48 +49,62 @@ jobs:
 
           echo "--- Starte Datenerfassung für: $FILE_NAME ---"
 
-          # -s (silent) und -w (write-out) verwenden, um den HTTP-Statuscode zu erhalten
-          # %{http_code} wird an die Ausgabe angehängt
           CURL_OUTPUT=$(curl -s -w "%{http_code}" 'https://www.pr.hamburg/ws/ws.get.status.php?obj=173')
-          # Die letzten 3 Zeichen als HTTP-Code extrahieren
           HTTP_CODE="${CURL_OUTPUT:(-3)}"
-          # Die eigentlichen Daten extrahieren, indem der HTTP-Code vom Ende entfernt wird
           DATA="${CURL_OUTPUT:0:${#CURL_OUTPUT}-3}"
 
           echo "HTTP Status Code von curl: $HTTP_CODE"
-          echo "Rohe DATEN von curl: '${DATA}'" # Mit Anführungszeichen drucken, um Leerzeichen zu visualisieren
+          echo "Rohe DATEN von curl: '${DATA}'"
 
-          # Überprüfen, ob curl einen erfolgreichen HTTP-Statuscode zurückgegeben hat
           if [[ "$HTTP_CODE" -ne 200 ]]; then
             echo "Fehler: curl hat den HTTP-Statuscode $HTTP_CODE zurückgegeben. Daten könnten unvollständig oder ungültig sein."
             echo "Vollständige curl-Ausgabe: '$CURL_OUTPUT'"
-            exit 1 # Schritt fehlschlagen lassen, wenn der HTTP-Status nicht 200 ist
+            exit 1
           fi
 
-          # Überprüfen, ob DATA nach dem Entfernen des HTTP-Codes leer ist
           if [ -z "$DATA" ]; then
             echo "Fehler: DATEN von curl sind leer. Dies könnte ein Netzwerkproblem sein oder die URL hat keinen Inhalt zurückgegeben."
-            exit 1 # Schritt fehlschlagen lassen, wenn Daten leer sind
+            exit 1
           fi
 
-          # Alle Leerzeichen (einschließlich Zeilenumbrüche, Leerzeichen, Tabs) aus DATA entfernen
           FREE=$(echo "$DATA" | tr -d '[:space:]')
 
-          # Grundlegende Validierung, um sicherzustellen, dass FREE eine Zahl ist
           if ! [[ "$FREE" =~ ^[0-9]+$ ]]; then
             echo "Fehler: Der extrahierte Wert '$FREE' ist keine gültige Zahl."
-            exit 1 # Fehlschlagen, wenn die extrahierten Daten keine Zahl sind
+            exit 1
           fi
 
           echo "Extrahierte freie Plätze: $FREE"
 
-          # Sicherstellen, dass die Datei existiert, bevor geschrieben wird, und die Daten schreiben
           touch "$FILE_NAME"
           echo "$FREE" > "$FILE_NAME"
           echo "Erfolgreich $FREE in $FILE_NAME geschrieben"
 
-          # Dateinamen für nachfolgende Schritte ausgeben, falls erforderlich
           echo "captured_file=$FILE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Setze Flag für E-Mail-Versand
+        id: set_email_flag
+        run: |
+          echo "--- Debugging E-Mail-Flag-Einstellung ---"
+          echo "github.event_name: '${{ github.event_name }}'"
+          echo "github.event.schedule: '${{ github.event.schedule }}'" # Mit Anführungszeichen, um Leerzeichen/Zeilenumbrüche zu erkennen
+
+          # Überprüfen der Bedingungen
+          IS_SCHEDULE_EVENT="${{ github.event_name == 'schedule' }}"
+          IS_CORRECT_CRON_STRING="${{ github.event.schedule == '31 7 * * *' }}" # Angepasst auf 9:31 MESZ / 7:31 UTC
+          echo "Ist 'schedule' Event: $IS_SCHEDULE_EVENT"
+          echo "Ist korrekter Cron-String ('31 7 * * *'): $IS_CORRECT_CRON_STRING"
+
+          # Setzt ein Flag, wenn dieser spezifische Cron-Job den Workflow ausgelöst hat.
+          if [[ "${{ github.event_name }}" == "schedule" && "${{ github.event.schedule }}" == "31 7 * * *" ]]; then
+            echo "Bedingung erfüllt: Dies ist der E-Mail-Trigger-Lauf."
+            echo "is_email_trigger_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Bedingung NICHT erfüllt: Dies ist NICHT der E-Mail-Trigger-Lauf."
+            echo "is_email_trigger_run=false" >> $GITHUB_OUTPUT
+          fi
+          echo "Endgültiger is_email_trigger_run Output: ${{ steps.set_email_flag.outputs.is_email_trigger_run }}"
+          echo "--- Ende Debugging E-Mail-Flag-Einstellung ---"
 
       - name: Speichere alle .txt Dateien als Artifact
         uses: actions/upload-artifact@v4
@@ -99,21 +114,22 @@ jobs:
           # retention-days: 1 # Optional: Verlauf für 1 Tag beibehalten
 
   mailversand:
-    needs: erfassen # Sicherstellen, dass dieser Job nach 'erfassen' läuft
     runs-on: ubuntu-latest
+    needs: erfassen # Stellt sicher, dass die Datenerfassung abgeschlossen ist
+    # Die E-Mail nur senden, wenn manuell ausgelöst (ganzer Workflow)
+    # ODER wenn das Flag vom 'erfassen'-Job auf 'true' gesetzt wurde.
+    if: github.event_name == 'workflow_dispatch' || needs.erfassen.outputs.is_email_trigger_run == 'true'
     steps:
-      # Hier sind keine actions/checkout@v4 oder pip install requests erforderlich, da Artefakte heruntergeladen werden.
-
       - name: Lade Dateien aus vorherigen Jobs
         uses: actions/download-artifact@v4
         with:
           name: parkstatus
-          path: . # In das aktuelle Verzeichnis herunterladen
+          path: .
 
       - name: Lade Parkdaten und bereite Nachricht vor
         id: load
         run: |
-          # Standardwert -1 verwenden, wenn Dateien nicht gefunden werden (z.B. wenn nur ein Cron ausgelöst wurde)
+          # Standardwert -1 verwenden, wenn Dateien nicht gefunden werden
           free_530=$(cat 1501.txt 2>/dev/null || echo "-1")
           free_600=$(cat 1502.txt 2>/dev/null || echo "-1")
           free_630=$(cat 1503.txt 2>/dev/null || echo "-1")
@@ -128,11 +144,8 @@ jobs:
         id: datum
         run: |
           echo "today=$(date '+%d.%m.%Y')" >> $GITHUB_OUTPUT
-          echo "current_minute=$(date +%M)" >> $GITHUB_OUTPUT # Aktuelle Minute für bedingten E-Mail-Versand abrufen
 
       - name: E-Mail senden
-        # E-Mail nur senden, wenn manuell ausgelöst ODER wenn es die 31. Minute (UTC) ist
-        if: github.event_name == 'workflow_dispatch' || steps.datum.outputs.current_minute == '31'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_HOST }}
@@ -148,9 +161,9 @@ jobs:
             hier die Parkbelegung an der P+R-Anlage Ohlsdorf:
 
             ${{ github.event_name == 'schedule' && format('
-            – Um 05:30 Uhr: {0} freie Plätze
-            – Um 06:00 Uhr: {1} freie Plätze
-            – Um 06:30 Uhr: {2} freie Plätze
+            – Um 09:00 Uhr: {0} freie Plätze
+            – Um 09:10 Uhr: {1} freie Plätze
+            – Um 09:20 Uhr: {2} freie Plätze
             ', steps.load.outputs.free_530, steps.load.outputs.free_600, steps.load.outputs.free_630) || '' }}
 
             ${{ github.event_name == 'workflow_dispatch' && format('
@@ -160,4 +173,4 @@ jobs:
             Viele Grüße!
 
       - name: Lösche temporäre Dateien
-        run: rm -f *.txt || true # -f für erzwungenes Entfernen, || true um Jobfehler zu verhindern, wenn keine Dateien existieren
+        run: rm -f *.txt || true
